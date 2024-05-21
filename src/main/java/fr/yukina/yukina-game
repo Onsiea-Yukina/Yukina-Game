@@ -1,0 +1,9 @@
+package <package>;
+
+public class Main
+{
+	public static void main(String[] argsIn)
+	{
+		System.out.println("Hello World !");
+	}
+}

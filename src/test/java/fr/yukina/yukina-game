@@ -1,0 +1,9 @@
+package <package_test>;
+
+public class MainTest
+{
+	public static void main(String[] argsIn)
+	{
+		System.out.println("Hello World !");
+	}
+}
