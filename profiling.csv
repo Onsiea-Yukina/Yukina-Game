@@ -1,0 +1,53 @@
+CSV GLOBAL INFORMATIONS:
+time unit,CSV description,indexed,temporal
+nanoseconds,this document provides profiling metric information,true,true
+
+CSV INFORMATIONS:
+information
+- This document uses temporal data. the "duration" columns specify the duration during which the value remained the same.
+
+
+TABLES:
+name,description
+INDEX,mapping between index and a profile name
+COLUMNS INFORMATIONS,informations about next table columns (for each tables)
+METRICS,informations about metrics
+AVERAGE,average measure data
+SNAPSHOTS,snapshots measure data
+METRICS-COLUMNS:
+name,description,unit
+name of metric,description of metric,unit of metric
+
+METRICS:
+name,description,unit
+memory-usage,Memory usage,MB
+FPS,Frames per second,frame/s
+
+
+INDEX-COLUMNS:
+name,index
+name of profile,associated index unique number
+
+INDEX:
+name,index
+main-initialize,1
+
+
+AVERAGE-COLUMNS:
+index,metric name,total value,total time,average value
+profile index,metric name,accumulated value,accumulated time,average value (total value / total time)
+
+AVERAGE:
+index,metric name,total value,total time,average value
+
+
+SNAPSHOTS-COLUMNS:
+index,metric name,duration,metric value
+profile index,metric name,duration during which the value is the same,metric snapshot value
+
+SNAPSHOTS:
+index,metric name,duration,metric value
+1,duration,0,111280500
+1,duration,1,null
+
+
