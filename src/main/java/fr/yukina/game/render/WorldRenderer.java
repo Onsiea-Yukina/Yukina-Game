@@ -36,7 +36,7 @@ public class WorldRenderer
 		this.unloadQueue     = new ConcurrentLinkedQueue<>();
 		this.preparedQueue   = new ConcurrentLinkedQueue<>();
 		this.shaderManager   = new ShaderManager();
-		this.executorService = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+		this.executorService = Executors.newFixedThreadPool(1);
 		this.world.chunkManager().addLoadedListener(this::chunkLoaded);
 		this.world.chunkManager().addUnloadedListener(this::chunkUnloaded);
 	}
@@ -95,7 +95,7 @@ public class WorldRenderer
 				var chunkRenderer = chunkRenderers.remove(chunk.key());
 				if (chunkRenderer != null)
 				{
-					executorService.submit(chunkRenderer::cleanup);
+					chunkRenderer.cleanup();
 					hasChanged = true;
 				}
 				processed++;
