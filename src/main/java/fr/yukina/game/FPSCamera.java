@@ -27,7 +27,7 @@ public class FPSCamera implements IGameLogic
 		this.projectionMatrix     = new Matrix4f().perspective(fovIn, aspectRatioIn, nearPlaneIn, farPlaneIn);
 		this.viewMatrix           = new Matrix4f();
 		this.projectionViewMatrix = new Matrix4f();
-		this.updateViewMatrix();
+
 		this.fov                            = fovIn;
 		this.aspectRatio                    = aspectRatioIn;
 		this.nearPlane                      = nearPlaneIn;
@@ -49,6 +49,7 @@ public class FPSCamera implements IGameLogic
 	@Override
 	public void initialize()
 	{
+		this.updateViewMatrix();
 	}
 
 	@Override

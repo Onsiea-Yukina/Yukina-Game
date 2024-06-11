@@ -2,16 +2,20 @@ package fr.yukina.game.render;
 
 import fr.yukina.game.render.opengl.GraphicObject;
 import fr.yukina.game.world.terrain.Terrain;
+import lombok.Getter;
+import lombok.Setter;
 import org.lwjgl.opengl.GL20;
 
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
 
+@Getter
 public class TerrainRenderer
 {
-	private final Terrain       terrain;
-	private final GraphicObject graphicObject;
-	private       boolean       uploaded;
+	private final           Terrain       terrain;
+	private final           GraphicObject graphicObject;
+	private                 boolean       uploaded;
+	private @Getter @Setter boolean       attemptRender;
 
 	public TerrainRenderer(Terrain terrainIn)
 	{
@@ -37,11 +41,12 @@ public class TerrainRenderer
 
 	public void render()
 	{
+		this.attemptRender(false);
 		if (!this.uploaded)
 		{
 			return;
 		}
-
+		this.attemptRender(true);
 		this.graphicObject.render();
 	}
 

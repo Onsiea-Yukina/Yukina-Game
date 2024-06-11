@@ -1,8 +1,9 @@
 package fr.yukina.game.render;
 
+import fr.yukina.game.render.opengl.OpenGLValidator;
 import fr.yukina.game.render.opengl.ShaderManager;
 import fr.yukina.game.world.World;
-import fr.yukina.game.world.chunk.Chunk;
+import fr.yukina.game.world.chunk.IChunk;
 import fr.yukina.game.world.terrain.Terrain;
 import lombok.Getter;
 import org.joml.Matrix4f;
@@ -13,31 +14,35 @@ import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
 import java.util.Map;
 import java.util.Queue;
-import java.util.concurrent.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.logging.Logger;
 
 @Getter
 public class WorldRenderer
 {
-	private final        World                                       world;
-	private final        Map<String, ChunkRenderer>                  chunkRenderers;
-	private final        ConcurrentLinkedQueue<ChunkRendererLoading> uploadQueue;
-	private final        ConcurrentLinkedQueue<Chunk>                unloadQueue;
-	private final        Queue<ChunkRendererLoading>                 preparedQueue;
-	private final        ShaderManager                               shaderManager;
-	private final        ExecutorService                             executorService;
-	private volatile     boolean                                     hasChanged;
-	private static final int                                         BATCH_SIZE = 5;
+	private static final Logger LOGGER = Logger.getLogger(WorldRenderer.class.getName());
+
+	private final        World                                    world;
+	private final        Map<String, ChunkRenderer>               chunkRenderers;
+	private final        ConcurrentLinkedQueue<IChunk>            unloadQueue;
+	private final        Queue<ChunkRendererLoading>              preparedQueue;
+	private final        ShaderManager                            shaderManager;
+	private final        Map<String, AtomicReference<ChunkState>> chunkStates;
+	private volatile     boolean                                  hasChanged;
+	private static final int                                      BATCH_SIZE = 40;
 
 	public WorldRenderer(World worldIn)
 	{
-		this.world           = worldIn;
-		this.chunkRenderers  = new ConcurrentHashMap<>();
-		this.uploadQueue     = new ConcurrentLinkedQueue<>();
-		this.unloadQueue     = new ConcurrentLinkedQueue<>();
-		this.preparedQueue   = new ConcurrentLinkedQueue<>();
-		this.shaderManager   = new ShaderManager();
-		this.executorService = Executors.newFixedThreadPool(1);
+		this.world          = worldIn;
+		this.chunkRenderers = new ConcurrentHashMap<>();
+		this.unloadQueue    = new ConcurrentLinkedQueue<>();
+		this.preparedQueue  = new ConcurrentLinkedQueue<>();
+		this.shaderManager  = new ShaderManager();
+		this.chunkStates    = new ConcurrentHashMap<>();
 		this.world.chunkManager().addLoadedListener(this::chunkLoaded);
+		this.world.chunkManager().addInfoListener(this::chunkInfo);
 		this.world.chunkManager().addUnloadedListener(this::chunkUnloaded);
 	}
 
@@ -64,22 +69,40 @@ public class WorldRenderer
 
 	private void processPreparedChunks()
 	{
-		int processed = 0;
-		while (!preparedQueue.isEmpty() && processed < BATCH_SIZE)
+		synchronized (preparedQueue)
 		{
-			var chunkRendererLoading = preparedQueue.poll();
-			if (chunkRendererLoading != null)
+			int processed = 0;
+			while (!preparedQueue.isEmpty() && processed < BATCH_SIZE)
 			{
-				var key = chunkRendererLoading.chunk().key();
-				if (!chunkRenderers.containsKey(key))
+				var chunkRendererLoading = preparedQueue.poll();
+				if (chunkRendererLoading != null)
 				{
-					var chunkRenderer = new ChunkRenderer(chunkRendererLoading.chunk());
-					chunkRenderer.terrainRenderer()
-					             .upload(chunkRendererLoading.vertices(), chunkRendererLoading.indices());
-					chunkRenderers.put(key, chunkRenderer);
-					hasChanged = true;
+					var key = chunkRendererLoading.chunk().key();
+					synchronized (chunkStates)
+					{
+						AtomicReference<ChunkState> stateRef = chunkStates.get(key);
+						if (stateRef != null && stateRef.get() == ChunkState.UNLOADING)
+						{
+							continue;
+						}
+					}
+					synchronized (chunkRenderers)
+					{
+						if (!chunkRenderers.containsKey(key))
+						{
+							var chunkRenderer = new ChunkRenderer(chunkRendererLoading.chunk());
+							chunkRenderer.terrainRenderer()
+							             .upload(chunkRendererLoading.vertices(), chunkRendererLoading.indices());
+							chunkRenderers.put(key, chunkRenderer);
+							hasChanged = true;
+						}
+					}
+					processed++;
+					synchronized (chunkStates)
+					{
+						chunkStates.remove(key);
+					}
 				}
-				processed++;
 			}
 		}
 	}
@@ -87,36 +110,122 @@ public class WorldRenderer
 	private void processUnloadQueue()
 	{
 		int processed = 0;
-		while (!unloadQueue.isEmpty() && processed < BATCH_SIZE)
+		synchronized (unloadQueue)
 		{
-			var chunk = unloadQueue.poll();
-			if (chunk != null)
+			while (!unloadQueue.isEmpty() && processed < BATCH_SIZE)
 			{
-				var chunkRenderer = chunkRenderers.remove(chunk.key());
-				if (chunkRenderer != null)
+				var chunk = unloadQueue.poll();
+				if (chunk != null)
 				{
-					chunkRenderer.cleanup();
-					hasChanged = true;
+					var key = chunk.key();
+					synchronized (chunkStates)
+					{
+						AtomicReference<ChunkState> stateRef = chunkStates.get(key);
+						if (stateRef != null && stateRef.get() == ChunkState.LOADING)
+						{
+							continue;
+						}
+					}
+
+					synchronized (chunkRenderers)
+					{
+						var chunkRenderer = chunkRenderers.remove(key);
+						if (chunkRenderer != null)
+						{
+							chunkRenderer.cleanup();
+							hasChanged = true;
+						}
+					}
+
+					processed++;
+
+					synchronized (chunkStates)
+					{
+						chunkStates.remove(key);
+					}
 				}
-				processed++;
 			}
 		}
 	}
 
-	public void chunkLoaded(Chunk chunkIn)
+	public void chunkLoaded(IChunk chunkIn)
 	{
-		var chunkRendererLoading = new ChunkRendererLoading(chunkIn);
-		uploadQueue.add(chunkRendererLoading);
-		executorService.submit(() ->
-		                       {
-			                       chunkRendererLoading.prepare();
-			                       preparedQueue.add(chunkRendererLoading);
-		                       });
+		var key = chunkIn.key();
+		synchronized (chunkStates)
+		{
+			var state = chunkStates.putIfAbsent(key, new AtomicReference<>(ChunkState.LOADING));
+			if (state != null && state.equals(ChunkState.UNLOADING))
+			{
+				return;
+			}
+		}
+		synchronized (preparedQueue)
+		{
+			var chunkRendererLoading = new ChunkRendererLoading(chunkIn);
+			chunkRendererLoading.prepare();
+			preparedQueue.add(chunkRendererLoading);
+		}
 	}
 
-	public void chunkUnloaded(Chunk chunkIn)
+	public void chunkInfo(IChunk chunkIn)
 	{
-		unloadQueue.add(chunkIn);
+		if (!this.world.chunkManager().needValidation())
+		{
+			return;
+		}
+		var        key   = chunkIn.key();
+		ChunkState state = null;
+		synchronized (chunkStates)
+		{
+			var atomic = chunkStates.get(key);
+			if (atomic != null)
+			{
+				state = atomic.get();
+			}
+		}
+		System.out.println("  state: " + (state == null ? "no state" : state));
+		var chunkRenderer = chunkRenderers.get(key);
+		if (chunkRenderer == null)
+		{
+			System.out.println("  is not present ");
+			return;
+		}
+		System.out.println("  associated chunk: " + chunkRenderer.chunk().key());
+		if (!key.equals(chunkRenderer.chunk().key()))
+		{
+			throw new RuntimeException("    keys are not equal");
+		}
+		if (chunkIn.visible() != chunkRenderer.chunk().visible())
+		{
+			throw new RuntimeException(
+					"  visible: " + chunkIn.visible() + ", but associated: " + chunkRenderer.chunk().visible());
+		}
+		System.out.println("  is present ");
+		System.out.println("  uploaded: " + chunkRenderer.terrainRenderer().uploaded());
+		var graphicObject = chunkRenderer.terrainRenderer().graphicObject();
+		if (graphicObject == null)
+		{
+			System.out.println("  graphic object is null");
+			return;
+		}
+		System.out.println("  graphic object is not null");
+		System.out.println("  attempt render in loop: " + chunkRenderer.attemptRenderInLoop());
+		System.out.println("  attempt render in terrain: " + chunkRenderer.attemptRenderInTerrain());
+		System.out.println("  attempt render: " + chunkRenderer.terrainRenderer().attemptRender());
+		OpenGLValidator.validateGraphicObject("  ", this.shaderManager, graphicObject, false);
+	}
+
+	public void chunkUnloaded(IChunk chunkIn)
+	{
+		var key = chunkIn.key();
+		synchronized (chunkStates)
+		{
+			chunkStates.putIfAbsent(key, new AtomicReference<>(ChunkState.UNLOADING));
+		}
+		synchronized (unloadQueue)
+		{
+			unloadQueue.add(chunkIn);
+		}
 	}
 
 	public void render(Matrix4f projectionMatrixIn, Matrix4f viewMatrixIn)
@@ -126,6 +235,7 @@ public class WorldRenderer
 		{
 			for (ChunkRenderer chunkRenderer : chunkRenderers.values())
 			{
+				chunkRenderer.attemptRenderInLoop(true);
 				chunkRenderer.render();
 			}
 		}
@@ -134,19 +244,6 @@ public class WorldRenderer
 
 	public void cleanup()
 	{
-		executorService.shutdown();
-		try
-		{
-			if (!executorService.awaitTermination(60, TimeUnit.SECONDS))
-			{
-				executorService.shutdownNow();
-			}
-		}
-		catch (InterruptedException e)
-		{
-			executorService.shutdownNow();
-			Thread.currentThread().interrupt();
-		}
 		chunkRenderers.clear();
 		shaderManager.cleanup();
 	}
@@ -154,12 +251,12 @@ public class WorldRenderer
 	@Getter
 	public final static class ChunkRendererLoading
 	{
-		private final Chunk       chunk;
+		private final IChunk      chunk;
 		private final Terrain     terrain;
 		private final FloatBuffer vertices;
 		private final IntBuffer   indices;
 
-		public ChunkRendererLoading(Chunk chunkIn)
+		public ChunkRendererLoading(IChunk chunkIn)
 		{
 			this.chunk    = chunkIn;
 			this.terrain  = chunkIn.terrain();
@@ -206,5 +303,10 @@ public class WorldRenderer
 			}
 			this.indices.flip();
 		}
+	}
+
+	private enum ChunkState
+	{
+		LOADING, UNLOADING
 	}
 }

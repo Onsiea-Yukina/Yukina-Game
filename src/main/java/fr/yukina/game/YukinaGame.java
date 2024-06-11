@@ -20,29 +20,28 @@ public class YukinaGame implements IGame
 	@Override
 	public void initialize()
 	{
-		this.world.initialize();
 		this.player.initialize();
+		this.world.initialize();
 	}
 
 	@Override
 	public void input(final IWindow windowIn)
 	{
-		this.world.input(windowIn);
 		this.player.input(windowIn);
+		this.world.input(windowIn);
 	}
 
 	@Override
 	public void update()
 	{
-
-		this.world.update();
 		this.player.update();
+		this.world.update();
 	}
 
 	@Override
 	public void cleanup()
 	{
-		this.world.cleanup();
 		this.player.cleanup();
+		this.world.cleanup();
 	}
 }
