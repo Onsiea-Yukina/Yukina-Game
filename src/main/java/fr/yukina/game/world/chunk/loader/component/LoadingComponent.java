@@ -37,7 +37,8 @@ public class LoadingComponent implements ChunkLoaderComponent
 		{
 			for (int z = centerZ - renderDistance; z <= centerZ + renderDistance; z++)
 			{
-				if (!patternComponent.validatePattern(context, x, z))
+				var distance = patternComponent.validatePattern(context, x, z);
+				if (distance < 0)
 				{
 					continue;
 				}
@@ -52,7 +53,7 @@ public class LoadingComponent implements ChunkLoaderComponent
 					ChunkManager.ChunkLoading chunkLoading = new ChunkManager.ChunkLoading(x, z, () ->
 					{
 						LOGGER.info(String.format("Loading chunk at %s", key));
-						return chunkManager.loadChunk(key, finalX, finalZ);
+						return chunkManager.loadChunk(key, finalX, finalZ, distance);
 					}, key);
 
 					boolean canLoad = true;

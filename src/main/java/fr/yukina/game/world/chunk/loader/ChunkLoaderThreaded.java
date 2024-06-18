@@ -4,37 +4,28 @@ import fr.yukina.game.utils.thread.OrderingMachine;
 import fr.yukina.game.world.chunk.ChunkManager;
 import fr.yukina.game.world.chunk.IChunk;
 import fr.yukina.game.world.chunk.loader.pattern.Circle;
-import fr.yukina.game.world.chunk.loader.pattern.EmptyCircle;
 import fr.yukina.game.world.chunk.loader.pattern.PatternManager;
 import fr.yukina.game.world.terrain.Terrain;
+import lombok.Getter;
 
 import java.util.Comparator;
-import java.util.PriorityQueue;
-import java.util.Queue;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Logger;
 
 public class ChunkLoaderThreaded implements IChunkLoader
 {
 	private static final Logger LOGGER = Logger.getLogger(ChunkLoaderThreaded.class.getName());
 
-	private final ChunkManager                                               chunkManager;
-	private final OrderingMachine<String, ChunkManager.ChunkLoading, IChunk> orderingMachine;
-	private final PatternManager                                             patternManager;
-	private final EmptyCircle                                                pattern;
+	private final         ChunkManager                                               chunkManager;
+	private final @Getter OrderingMachine<String, ChunkManager.ChunkLoading, IChunk> orderingMachine;
+	private final         PatternManager                                             patternManager;
+	private final         Circle                                                     circlePattern;
 
-	private long chunkLoadingTime = 0L;
+	private volatile boolean needChunkLoading;
+	private volatile boolean needChunkUnloading;
+	private volatile boolean needCheckVisibility;
 
-	private          boolean needCheckLoad;
-	private          boolean needCheckUnload;
-	private volatile boolean firstExecution = true;
-
-	private volatile boolean loadFull = true;
-	private          float   lastPlayerX;
-	private          float   lastPlayerZ;
-	private          int     playerChunkMovementDistance;
-	private          float   renderDistanceVariation;
-	private          float   lastRenderDistance;
-	private          float   lastDepth;
+	private volatile AtomicBoolean frustumIntersectionHasChanged = new AtomicBoolean();
 
 	public ChunkLoaderThreaded(ChunkManager chunkManagerIn)
 	{
@@ -42,19 +33,31 @@ public class ChunkLoaderThreaded implements IChunkLoader
 		this.orderingMachine = new OrderingMachine<String, ChunkManager.ChunkLoading, IChunk>(
 				(queueIn) -> this.updateStatesAndLoadQueue(), (valueIn) -> valueIn.loadFunction().get(),
 				(valueIn) -> this.chunkManager.key(valueIn.x(), valueIn.z()),
-				Runtime.getRuntime().availableProcessors(), new PriorityQueue<>(Comparator.comparingInt(
-				chunkLoading -> chunkManager.isOutFrustum(chunkLoading.x(), chunkLoading.z()) ? 1 : -1)));
-		this.orderingMachine.maxSubmitCount(
-				(int) (this.chunkManager.renderDistance().current() * 2 * this.chunkManager.renderDistance().current()
-				       * 2));
-		this.orderingMachine.orderingInterval(40L);
+				Runtime.getRuntime().availableProcessors() / 2, Comparator.comparingInt(chunkLoading ->
+				                                                                        {
+					                                                                        if (chunkLoading == null)
+					                                                                        {
+						                                                                        return -4;
+					                                                                        }
+
+					                                                                        if (this.frustumIntersectionHasChanged.get())
+					                                                                        {
+						                                                                        chunkLoading.updateVisibility(
+								                                                                        this.chunkManager);
+					                                                                        }
+					                                                                        this.frustumIntersectionHasChanged.set(
+							                                                                        false);
+
+					                                                                        return chunkLoading.visible()
+					                                                                               ? 1
+					                                                                               : -1;
+				                                                                        }));
+		this.orderingMachine.maxSubmitCount(256 * 2 * 256 * 2);
+		this.orderingMachine.orderingInterval(40);
 		this.patternManager = new PatternManager();
-		this.pattern        = new EmptyCircle(this.chunkManager.renderDistance().current(),
-		                                      this.chunkManager.renderDistance().current(), Terrain.WIDTH,
-		                                      Terrain.DEPTH);
-		this.patternManager.set(
-				new Circle(this.chunkManager.renderDistance().current(), this.chunkManager.renderDistance().current(),
-				           Terrain.WIDTH, Terrain.DEPTH));
+		this.circlePattern  = new Circle(this.chunkManager.renderDistance().current(),
+		                                 this.chunkManager.renderDistance().current(), Terrain.WIDTH, Terrain.DEPTH);
+		this.patternManager.set(this.circlePattern);
 	}
 
 	public final void update()
@@ -64,32 +67,23 @@ public class ChunkLoaderThreaded implements IChunkLoader
 			this.orderingMachine.start();
 		}
 
-		checkVisibility();
+		if (this.needCheckVisibility)
+		{
+			checkVisibility();
+		}
 	}
 
 	private void updateStatesAndLoadQueue()
 	{
-		this.updateStates();
-
-		if (this.needCheckUnload)
+		if (this.needChunkUnloading)
 		{
 			checkUnload();
 		}
 
-		if (this.needCheckLoad)
+		if (this.needChunkLoading)
 		{
 			this.orderingMachine.stopTasks();
 			this.patternManager.forEach((xIn, zIn) -> this.checkChunkLoad(xIn, zIn));
-
-			if (this.loadFull)
-			{
-				this.loadFull = false;
-			}
-			if (this.firstExecution)
-			{
-				this.firstExecution = false;
-			}
-			this.resetStates();
 		}
 	}
 
@@ -99,33 +93,34 @@ public class ChunkLoaderThreaded implements IChunkLoader
 		{
 			for (var chunk : this.chunkManager.chunks().values())
 			{
-				chunk.visible(!this.chunkManager.isOutFrustum(chunk));
+				this.chunkManager.updateVisibility(chunk);
 			}
 		}
 	}
 
 	private void checkUnload()
 	{
-		int   centerX            = (int) this.chunkManager.player().camera().position().x / Terrain.WIDTH;
-		int   centerZ            = (int) this.chunkManager.player().camera().position().z / Terrain.DEPTH;
-		int   renderDistance     = (int) this.chunkManager.renderDistance().current();
-		float maxDistanceSquared = (renderDistance * Terrain.WIDTH) * (renderDistance * Terrain.WIDTH);
+		var centerX        = this.chunkManager.player().camera().position().x;
+		var centerZ        = this.chunkManager.player().camera().position().z;
+		var renderDistance = this.chunkManager.renderDistance().current();
+		var maxDistanceSquared = (renderDistance * Terrain.WIDTH) * (renderDistance * Terrain.WIDTH)
+		                         + (renderDistance * Terrain.DEPTH) * (renderDistance * Terrain.DEPTH);
 
 		synchronized (this.chunkManager.chunks())
 		{
 			for (var chunk : this.chunkManager.chunks().values())
 			{
-				float dx = centerX - (chunk.terrain().x() / Terrain.WIDTH);
-				float dz = centerZ - (chunk.terrain().z() / Terrain.DEPTH);
-				float distanceSquared =
-						dx * dx * Terrain.WIDTH * Terrain.WIDTH + dz * dz * Terrain.DEPTH * Terrain.DEPTH;
+				float dx              = centerX - chunk.terrain().x();
+				float dz              = centerZ - chunk.terrain().z();
+				float distanceSquared = dx * dx + dz * dz;
 
 				if (distanceSquared > maxDistanceSquared)
 				{
-					chunk.visible(false);
+					this.chunkManager.updateVisibility(chunk, false);
 					chunk.needUnload(true);
 					chunk.cleanup();
 					this.chunkManager.chunks().remove(chunk.key());
+					this.orderingMachine.remove(chunk.key());
 					for (var listener : this.chunkManager.unloadedListeners())
 					{
 						listener.onChunk(chunk);
@@ -155,18 +150,24 @@ public class ChunkLoaderThreaded implements IChunkLoader
 
 		String key = this.chunkManager.key(x, z);
 
-		if (this.chunkManager.chunks().containsKey(key))
+		synchronized (this.chunkManager.chunks())
 		{
-			return;
+			if (this.chunkManager.chunks().containsKey(key))
+			{
+				return;
+			}
 		}
-		this.orderingMachine.waitingQueue().add(new ChunkManager.ChunkLoading(x, z, () ->
+
+		this.orderingMachine.submit(key, new ChunkManager.ChunkLoading(x, z, () ->
 		{
-			LOGGER.info(String.format("Loading chunk at " + "%s", key));
-			return this.chunkManager.loadChunk(key, x, z);
+			return this.chunkManager.loadChunk(key, x, z,
+			                                   this.chunkManager.renderDistance().distance(x * Terrain.WIDTH,
+			                                                                                          z
+			                                                                                          * Terrain.DEPTH));
 		}, key));
 	}
 
-	private void loadEmptyCircle(int radiusIn, double depthIn, Queue<ChunkManager.ChunkLoading> queueIn)
+	/*private void loadEmptyCircle(int radiusIn, double depthIn, Queue<ChunkManager.ChunkLoading> queueIn)
 	{
 		int   centerX            = (int) this.chunkManager.player().camera().position().x / Terrain.WIDTH;
 		int   centerZ            = (int) this.chunkManager.player().camera().position().z / Terrain.DEPTH;
@@ -205,95 +206,45 @@ public class ChunkLoaderThreaded implements IChunkLoader
 
 				String key = this.chunkManager.key(x, z);
 
-				if (!this.chunkManager.chunks().containsKey(key))
+				synchronized (this.chunkManager.chunks())
 				{
-					queueIn.add(new ChunkManager.ChunkLoading(x, z, () ->
+					if (!this.chunkManager.chunks().containsKey(key))
 					{
-						LOGGER.info(String.format("Loading chunk at %s", key));
-						return this.chunkManager.loadChunk(key, x, z);
-					}, key));
+						queueIn.add(new ChunkManager.ChunkLoading(x, z, () ->
+						{
+							LOGGER.info(String.format("Loading chunk at %s", key));
+							return this.chunkManager.loadChunk(key, x, z);
+						}, key));
+					}
 				}
 			}
 		}
+	}*/
+
+	public synchronized final void frustumIntersectionHasChanged(boolean hasChangedIn)
+	{
+		this.frustumIntersectionHasChanged.set(hasChangedIn);
 	}
 
-	public final void resetStates()
+	public synchronized final void needChunkLoading(boolean needChunkLoadingIn)
 	{
-		this.chunkLoadingTime = 0L;
-		this.needCheckLoad    = false;
-		this.needCheckUnload  = false;
+		this.needChunkLoading = needChunkLoadingIn;
 	}
 
-	public final void updateStates()
+	public synchronized final void needChunkUnloading(boolean needChunkUnloadingIn)
 	{
-		var renderDistanceDiff = 0.0f;
-		synchronized (this.chunkManager.renderDistance())
-		{
-			renderDistanceDiff = this.chunkManager.renderDistance().current() - this.lastRenderDistance;
-		}
+		this.needChunkUnloading = needChunkUnloadingIn;
+	}
 
-		synchronized (this.chunkManager.player())
-		{
-			if (!this.chunkManager.player().updateState().hasChanged() && renderDistanceDiff == 0
-			    && !this.firstExecution)
-			{
-				return;
-			}
-		}
+	public synchronized final void setNeedCheckVisibility(boolean needCheckVisibilityIn)
+	{
+		this.needCheckVisibility = needCheckVisibilityIn;
+	}
 
-		if (renderDistanceDiff != 0)
-		{
-			synchronized (this.chunkManager.renderDistance())
-			{
-				this.renderDistanceVariation = renderDistanceDiff;
-				this.lastRenderDistance      = this.chunkManager.renderDistance().current();
-			}
-		}
-
-		synchronized (this.chunkManager.player())
-		{
-			synchronized (this.chunkManager.renderDistance())
-			{
-				double distX = (this.chunkManager.player().camera().position().x() - this.lastPlayerX) / Terrain.WIDTH;
-				double distZ = (this.chunkManager.player().camera().position().z() - this.lastPlayerZ) / Terrain.DEPTH;
-				this.playerChunkMovementDistance = (int) Math.sqrt(distX * distX + distZ * distZ);
-				lastPlayerX                      = this.chunkManager.player().camera().position().x();
-				lastPlayerZ                      = this.chunkManager.player().camera().position().z();
-			}
-
-			synchronized (this.chunkManager.frustumIntersection())
-			{
-				this.chunkManager.frustumIntersection().set(this.chunkManager.player().camera().projectionViewMatrix());
-			}
-
-			this.needCheckLoad   =
-					this.chunkManager.player().updateState().hasMoveOneChunk() || this.chunkManager.renderDistance()
-					                                                                               .hasChanged()
-					|| this.firstExecution;
-			this.needCheckUnload =
-					this.chunkManager.player().updateState().hasMoveOneChunk() || this.chunkManager.renderDistance()
-					                                                                               .hasChanged();
-		}
-
-		if (this.firstExecution)
-		{
-			this.lastRenderDistance          = this.chunkManager.renderDistance().current();
-			this.playerChunkMovementDistance = 0;
-		}
-
-		if (this.loadFull)
-		{
-		}
-		else if (!this.firstExecution)
-		{
-			var depth = Math.min(1.0f, Math.max(this.playerChunkMovementDistance, this.renderDistanceVariation));
-			if (depth != this.lastDepth)
-			{
-				this.lastDepth = depth;
-				this.pattern.set(depth);
-				this.patternManager.set(this.pattern);
-			}
-		}
+	public final void updateRenderDistance(int renderDistanceIn)
+	{
+		this.circlePattern.updateRadius(renderDistanceIn, renderDistanceIn);
+		this.patternManager.set(this.circlePattern);
 	}
 
 	public void cleanup()

@@ -9,9 +9,11 @@ public interface IChunk
 
 	Terrain terrain();
 
+	int frustumUpdateFrame();
+
 	boolean visible();
 
-	IChunk visible(boolean visibleIn);
+	IChunk visible(int frustumUpdateFrameIn, boolean visibleIn);
 
 	boolean needUnload();
 

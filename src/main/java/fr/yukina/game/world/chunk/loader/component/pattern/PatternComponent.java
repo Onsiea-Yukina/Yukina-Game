@@ -4,5 +4,11 @@ import fr.yukina.game.world.chunk.loader.component.ChunkLoaderContext;
 
 public interface PatternComponent
 {
-	boolean validatePattern(ChunkLoaderContext context, int x, int z);
+	/**
+	 * @param context
+	 * @param x
+	 * @param z
+	 * @return distance if is valid, -1 otherwise
+	 */
+	float validatePattern(ChunkLoaderContext context, int x, int z);
 }

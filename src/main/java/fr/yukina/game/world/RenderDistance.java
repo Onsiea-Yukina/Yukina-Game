@@ -13,8 +13,11 @@ public class RenderDistance
 	private static final Logger LOGGER = Logger.getLogger(RenderDistance.class.getName());
 
 	private final int     max;
-	private final long    increaseTime;
-	private final float   increaseDiv;
+	private       long    increaseTime;
+	private       long    maxIncreaseTime;
+	private       float   increaseDiv;
+	private       float   divVariation;
+	private       float   timeVariation;
 	private final Player  player;
 	private       float   last;
 	private       float   current;
@@ -24,13 +27,17 @@ public class RenderDistance
 	private       boolean hasChanged;
 	private       long    lastIncreaseTime;
 
-	public RenderDistance(final int maxRenderDistanceIn, final long increaseTimeIn, final float increaseDivIn,
+	public RenderDistance(final int maxRenderDistanceIn, final long increaseTimeIn, final long maxIncreaseTimeIn,
+	                      final float increaseDivIn, final float divVariation, final float timeVariation,
 	                      final Player playerIn)
 	{
-		this.max          = maxRenderDistanceIn;
-		this.increaseTime = increaseTimeIn;
-		this.increaseDiv  = increaseDivIn;
-		this.player       = playerIn;
+		this.max             = maxRenderDistanceIn;
+		this.increaseTime    = increaseTimeIn;
+		this.maxIncreaseTime = maxIncreaseTimeIn;
+		this.increaseDiv     = increaseDivIn;
+		this.divVariation    = divVariation;
+		this.timeVariation   = timeVariation;
+		this.player          = playerIn;
 
 		this.current(this.canIncrease() ? this.max / this.increaseDiv : this.max);
 		this.lastIncreaseTime = System.nanoTime();
@@ -65,7 +72,7 @@ public class RenderDistance
 		this.blockXZ = this.blockX * this.blockX + this.blockZ * this.blockZ;
 	}
 
-	public final void update()
+	public final void update(boolean canIncreaseIn)
 	{
 		this.hasChanged = false;
 		if (!this.canIncrease())
@@ -73,10 +80,16 @@ public class RenderDistance
 			return;
 		}
 
-		if (System.nanoTime() - this.lastIncreaseTime >= this.increaseTime)
+		if (System.nanoTime() - this.lastIncreaseTime >= this.increaseTime || canIncreaseIn)
 		{
 			this.current(this.current + this.max / this.increaseDiv);
 			this.lastIncreaseTime = System.nanoTime();
+			this.increaseDiv += this.divVariation;
+			this.increaseTime     = (long) (((float) this.increaseTime) * this.timeVariation);
+			if (this.increaseTime > this.maxIncreaseTime)
+			{
+				this.increaseTime = this.maxIncreaseTime;
+			}
 		}
 	}
 
@@ -92,16 +105,20 @@ public class RenderDistance
 
 	public boolean isOut(float xIn, float zIn)
 	{
-		double centerX  = this.player.camera().position().x;
-		double centerZ  = this.player.camera().position().z;
-		double distX    = centerX - xIn;
-		double distZ    = centerZ - zIn;
-		double distance = distX * distX + distZ * distZ;
-
+		var distance = this.distance(xIn, zIn);
 		LOGGER.info(
 				String.format("Checking render distance for chunk at (%.2f, %.2f): distance = %.2f, threshold = %.2f",
 				              xIn, zIn, distance, this.blockXZ));
 
 		return distance > this.blockXZ;
+	}
+
+	public final float distance(float xIn, float zIn)
+	{
+		double centerX = this.player.camera().position().x;
+		double centerZ = this.player.camera().position().z;
+		double distX   = centerX - xIn;
+		double distZ   = centerZ - zIn;
+		return (float) (distX * distX + distZ * distZ);
 	}
 }

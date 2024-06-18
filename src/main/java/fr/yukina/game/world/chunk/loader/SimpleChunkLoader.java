@@ -44,7 +44,7 @@ public class SimpleChunkLoader implements IChunkLoader
 
 			if (distanceSquared > maxDistanceSquared)
 			{
-				chunk.visible(false);
+				this.chunkManager.updateVisibility(chunk, false);
 				chunk.needUnload(true);
 				chunk.cleanup();
 				this.chunkManager.chunks().remove(chunk.key());
@@ -56,7 +56,7 @@ public class SimpleChunkLoader implements IChunkLoader
 			}
 			else
 			{
-				chunk.visible(!this.chunkManager.isOutFrustum(chunk));
+				this.chunkManager.updateVisibility(chunk);
 			}
 		}
 	}
@@ -95,7 +95,7 @@ public class SimpleChunkLoader implements IChunkLoader
 					final int finalZ = z;
 
 					LOGGER.info(String.format("Loading chunk at %s", key));
-					this.chunkManager.loadChunk(key, finalX, finalZ);
+					this.chunkManager.loadChunk(key, finalX, finalZ, distanceSquared);
 				}
 			}
 		}

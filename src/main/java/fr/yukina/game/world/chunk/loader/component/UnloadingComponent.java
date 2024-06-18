@@ -35,12 +35,12 @@ public class UnloadingComponent implements ChunkLoaderComponent
 			int chunkX = chunk.terrain().x() / Terrain.WIDTH;
 			int chunkZ = chunk.terrain().z() / Terrain.DEPTH;
 
-			if (!patternComponent.validatePattern(context, chunkX, chunkZ))
+			var distance = patternComponent.validatePattern(context, chunkX, chunkZ);
+			if (distance >= 0)
 			{
 				ChunkManager.ChunkLoading chunkLoading = new ChunkManager.ChunkLoading(chunkX, chunkZ, () ->
 				{
-					chunk.visible(false);
-					chunk.needUnload(true);
+					chunkManager.updateVisibility(chunk, false);
 					chunk.cleanup();
 					chunkManager.chunks().remove(chunk.key());
 					for (var listener : chunkManager.unloadedListeners())

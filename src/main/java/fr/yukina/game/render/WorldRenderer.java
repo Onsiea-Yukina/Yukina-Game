@@ -12,6 +12,7 @@ import org.lwjgl.BufferUtils;
 import java.io.IOException;
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
@@ -148,8 +149,15 @@ public class WorldRenderer
 		}
 	}
 
+	private final Map<String, IChunk> chunks = new HashMap<>();
+
 	public void chunkLoaded(IChunk chunkIn)
 	{
+		if (this.chunks.containsKey(chunkIn.key()))
+		{
+			return;
+		}
+		chunks.put(chunkIn.key(), chunkIn);
 		var key = chunkIn.key();
 		synchronized (chunkStates)
 		{
@@ -258,38 +266,47 @@ public class WorldRenderer
 
 		public ChunkRendererLoading(IChunk chunkIn)
 		{
-			this.chunk    = chunkIn;
-			this.terrain  = chunkIn.terrain();
-			this.vertices = BufferUtils.createFloatBuffer((this.terrain.width() + 1) * (this.terrain.depth() + 1) * 3);
-			this.indices  = BufferUtils.createIntBuffer(this.terrain.depth() * this.terrain.depth() * 6);
+			this.chunk   = chunkIn;
+			this.terrain = chunkIn.terrain();
+			var lodFactor   = this.terrain.lod();
+			var numVertices = ((terrain.width() / lodFactor) + 1) * ((terrain.depth() / lodFactor) + 1);
+			var numIndices  = ((terrain.width() / lodFactor)) * ((terrain.depth() / lodFactor)) * 6;
+			this.vertices = BufferUtils.createFloatBuffer((int) (numVertices * 3));
+			this.indices  = BufferUtils.createIntBuffer((int) numIndices);
 		}
 
 		public void prepare()
 		{
-			int width = this.terrain.width();
-			int depth = this.terrain.depth();
+			int   width = this.terrain.width();
+			int   depth = this.terrain.depth();
+			float lod   = this.terrain.lod();
 
 			// Generate vertices
-			for (int z = 0; z <= depth; z++)
+			for (float z = 0; z <= depth; z += lod)
 			{
-				for (int x = 0; x <= width; x++)
+				for (float x = 0; x <= width; x += lod)
 				{
-					float height = this.terrain.height(x, z);
+					var point = this.terrain.point(x, z);
+					if (point == null)
+					{
+						continue;
+					}
 					this.vertices.put(this.terrain.x() + x);
-					this.vertices.put(this.terrain.y() + height);
+					this.vertices.put(this.terrain.y() + point.y);
 					this.vertices.put(this.terrain.z() + z);
 				}
 			}
 			this.vertices.flip();
 
 			// Generate indices
-			for (int z = 0; z < depth; z++)
+			int vertexPerRow = (width / (int) lod) + 1;
+			for (int z = 0; z < depth / lod; z++)
 			{
-				for (int x = 0; x < width; x++)
+				for (int x = 0; x < width / lod; x++)
 				{
-					int topLeft     = z * (width + 1) + x;
+					int topLeft     = z * vertexPerRow + x;
 					int topRight    = topLeft + 1;
-					int bottomLeft  = topLeft + (width + 1);
+					int bottomLeft  = topLeft + vertexPerRow;
 					int bottomRight = bottomLeft + 1;
 
 					this.indices.put(topLeft);

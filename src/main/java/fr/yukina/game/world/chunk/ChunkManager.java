@@ -3,7 +3,6 @@ package fr.yukina.game.world.chunk;
 import fr.yukina.game.Player;
 import fr.yukina.game.world.RenderDistance;
 import fr.yukina.game.world.chunk.loader.ChunkLoaderThreaded;
-import fr.yukina.game.world.chunk.loader.IChunkLoader;
 import fr.yukina.game.world.terrain.ITerrainGenerator;
 import fr.yukina.game.world.terrain.Terrain;
 import lombok.Getter;
@@ -22,6 +21,7 @@ public class ChunkManager
 	private static final Logger            LOGGER = Logger.getLogger(ChunkManager.class.getName());
 	private final        RenderDistance    renderDistance;
 	private final        boolean           needValidation;
+	private              boolean           firstExecution;
 	private final        ITerrainGenerator generator;
 
 	private final List<IChunkListener> loadedListeners;
@@ -31,11 +31,13 @@ public class ChunkManager
 	private final Map<String, IChunk> chunks;
 	private final Player              player;
 	private final FrustumIntersection frustumIntersection;
-	private final IChunkLoader        chunkLoader;
+	private final ChunkLoaderThreaded chunkLoader;
+	private       byte                updateFrustumFrame;
 
 	public ChunkManager(int renderDistanceIn, ITerrainGenerator generatorIn, Player playerIn)
 	{
-		this.renderDistance      = new RenderDistance(renderDistanceIn, 2_000_000_000L, 20, playerIn);
+		this.renderDistance      = new RenderDistance(renderDistanceIn, 500_000_000L, 8_500_000_000L, 37, 2, 1.75f,
+		                                              playerIn);
 		this.generator           = generatorIn;
 		this.loadedListeners     = new CopyOnWriteArrayList<>();
 		this.infoListeners       = new CopyOnWriteArrayList<>();
@@ -45,11 +47,38 @@ public class ChunkManager
 		this.frustumIntersection = new FrustumIntersection();
 		this.chunkLoader         = new ChunkLoaderThreaded(this);
 		this.needValidation      = false;
+		this.firstExecution      = true;
 	}
 
 	public final void update()
 	{
-		this.renderDistance.update();
+		this.renderDistance.update(this.chunkLoader.orderingMachine().waitingQueue().size() <= 25);
+
+		if (this.player.updateState().hasChanged())
+		{
+			this.frustumIntersection.set(this.player().camera().projectionViewMatrix());
+			this.updateFrustumFrame++;
+			this.chunkLoader.frustumIntersectionHasChanged(true);
+			var need = this.player.updateState().hasMoveOneChunk() || this.firstExecution;
+			this.chunkLoader.needChunkLoading(need);
+			this.chunkLoader.needChunkUnloading(need);
+			this.chunkLoader.setNeedCheckVisibility(this.player.updateState().hasRotated());
+		}
+		else
+		{
+			this.chunkLoader.needChunkLoading(this.firstExecution);
+			this.chunkLoader.needChunkUnloading(this.firstExecution);
+			this.chunkLoader.setNeedCheckVisibility(false);
+			this.chunkLoader.frustumIntersectionHasChanged(false);
+		}
+
+		if (this.renderDistance.hasChanged())
+		{
+			this.chunkLoader.needChunkLoading(true);
+			this.chunkLoader.needChunkUnloading(true);
+			this.chunkLoader.updateRenderDistance((int) this.renderDistance.current());
+		}
+
 		this.chunkLoader.update();
 
 		if (this.needValidation)
@@ -91,13 +120,71 @@ public class ChunkManager
 		                                         zIn * Terrain.DEPTH + Terrain.DEPTH);
 	}
 
-	public IChunk loadChunk(String keyIn, int xIn, int zIn)
+	public final void updateVisibility(IChunk chunkIn)
 	{
+		if (chunkIn.frustumUpdateFrame() != this.updateFrustumFrame)
+		{
+			chunkIn.visible(this.updateFrustumFrame, !this.isOutFrustum(chunkIn));
+		}
+	}
+
+	public final void updateVisibility(IChunk chunkIn, boolean visibilityIn)
+	{
+		chunkIn.visible(this.updateFrustumFrame, visibilityIn);
+	}
+
+	public IChunk loadChunk(String keyIn, int xIn, int zIn, float distanceSquaredIn)
+	{
+		if (this.chunks.containsKey(keyIn))
+		{
+			System.out.println("Chunk already loaded: " + keyIn);
+			return this.chunks.get(keyIn);
+		}
+
+		var maxDistanceSquared = ((renderDistance.max()) * Terrain.WIDTH) * ((renderDistance.max()) * Terrain.WIDTH)
+		                         + ((renderDistance.max()) * Terrain.DEPTH) * ((renderDistance.max()) * Terrain.DEPTH);
+		var lod = 1.0f;
+		if (distanceSquaredIn > maxDistanceSquared * 0.90f)
+		{
+			lod = 32.0f;
+		}
+		else if (distanceSquaredIn > maxDistanceSquared * 0.40f)
+		{
+			lod = 24.0f;
+		}
+		else if (distanceSquaredIn > maxDistanceSquared * 0.20f)
+		{
+			lod = 20.0f;
+		}
+		else if (distanceSquaredIn > maxDistanceSquared * 0.15f)
+		{
+			lod = 16.0f;
+		}
+		else if (distanceSquaredIn > maxDistanceSquared * 0.10f)
+		{
+			lod = 14.0f;
+		}
+		else if (distanceSquaredIn > maxDistanceSquared * 0.5f)
+		{
+			lod = 12.0f;
+		}
+		else if (distanceSquaredIn > maxDistanceSquared * 0.05f)
+		{
+			lod = 10.0f;
+		}
+		else if (distanceSquaredIn > maxDistanceSquared * 0.005f)
+		{
+			lod = 8.0f;
+		}
+		else if (distanceSquaredIn > maxDistanceSquared * 0.0025f)
+		{
+			lod = 4.0f;
+		}
+
 		var chunk = new ChunkLink(keyIn, xIn * Terrain.WIDTH, 0, zIn * Terrain.DEPTH, Terrain.WIDTH, Terrain.DEPTH,
-		                          this.generator);
+		                          this.generator, lod);
 
 		chunk.generate();
-		chunk.visible(!isOutFrustum(chunk));
 		this.chunks().put(chunk.key(), chunk);
 		for (var listener : this.loadedListeners())
 		{
@@ -169,6 +256,8 @@ public class ChunkManager
 	{
 		private final int              x;
 		private final int              z;
+		private       int              frustumUpdateFrame;
+		private       boolean          visible;
 		private final Supplier<IChunk> loadFunction;
 		private final String           key;
 
@@ -178,6 +267,27 @@ public class ChunkManager
 			this.z            = zIn;
 			this.loadFunction = loadFunctionIn;
 			this.key          = keyIn;
+		}
+
+		public ChunkLoading updateVisibility(ChunkManager chunkManagerIn)
+		{
+			if (this.frustumUpdateFrame == chunkManagerIn.updateFrustumFrame())
+			{
+				return this;
+			}
+
+			this.frustumUpdateFrame = chunkManagerIn.updateFrustumFrame();
+			this.visible            = chunkManagerIn.isOutFrustum(this.x, this.z);
+
+			return this;
+		}
+
+		public ChunkLoading visible(int frustumUpdateFrameIn, boolean visibleIn)
+		{
+			this.frustumUpdateFrame = frustumUpdateFrameIn;
+			this.visible            = visibleIn;
+
+			return this;
 		}
 	}
 }

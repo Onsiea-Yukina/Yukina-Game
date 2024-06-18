@@ -15,12 +15,12 @@ public class Chunk implements IChunk
 	private static final Map<String, Chunk> CHUNKS = new ConcurrentHashMap<>();
 
 	public static final IChunk get(String keyIn, int xIn, int yIn, int zIn, int widthIn, int depthIn,
-	                               ITerrainGenerator generatorIn)
+	                               ITerrainGenerator generatorIn, float lodIn)
 	{
 		var chunk = CHUNKS.get(keyIn);
 		if (chunk == null)
 		{
-			chunk = new Chunk(keyIn, xIn, yIn, zIn, widthIn, depthIn, generatorIn);
+			chunk = new Chunk(keyIn, xIn, yIn, zIn, widthIn, depthIn, generatorIn, lodIn);
 			CHUNKS.put(keyIn, chunk);
 		}
 
@@ -31,19 +31,30 @@ public class Chunk implements IChunk
 
 	private final   String   key;
 	private final   Terrain  terrain;
-	private @Setter boolean  visible;
+	private @Getter int      frustumUpdateFrame;
+	private         boolean  visible;
 	private @Setter boolean  needUnload;
 	private final   Vector3f min;
 	private final   Vector3f max;
 
-	private Chunk(String keyIn, int xIn, int yIn, int zIn, int widthIn, int depthIn, ITerrainGenerator generatorIn)
+	private Chunk(String keyIn, int xIn, int yIn, int zIn, int widthIn, int depthIn, ITerrainGenerator generatorIn,
+	              float lodIn)
 	{
 		this.key        = keyIn;
-		this.terrain    = new Terrain(xIn, yIn, zIn, widthIn, depthIn, generatorIn);
+		this.terrain    = new Terrain(xIn, yIn, zIn, widthIn, depthIn, generatorIn, lodIn);
 		this.min        = new Vector3f(xIn, yIn, zIn);
 		this.max        = new Vector3f(xIn + widthIn, yIn + HEIGHT, zIn + depthIn);
 		this.visible    = true;
 		this.needUnload = false;
+	}
+
+	@Override
+	public final IChunk visible(int frustumUpdateFrameIn, boolean visibleIn)
+	{
+		this.frustumUpdateFrame = frustumUpdateFrameIn;
+		this.visible            = visibleIn;
+
+		return this;
 	}
 
 	public final void generate()

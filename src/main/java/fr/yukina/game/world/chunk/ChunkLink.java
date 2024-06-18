@@ -8,9 +8,10 @@ public class ChunkLink implements ILink<IChunk>, IChunk
 {
 	private @Delegate IChunk chunk;
 
-	public ChunkLink(String keyIn, int xIn, int yIn, int zIn, int widthIn, int depthIn, ITerrainGenerator generatorIn)
+	public ChunkLink(String keyIn, int xIn, int yIn, int zIn, int widthIn, int depthIn, ITerrainGenerator generatorIn,
+	                 float lodIn)
 	{
-		this.chunk = Chunk.get(keyIn, xIn, yIn, zIn, widthIn, depthIn, generatorIn);
+		this.chunk = Chunk.get(keyIn, xIn, yIn, zIn, widthIn, depthIn, generatorIn, lodIn);
 	}
 
 	public ChunkLink(Chunk chunkIn)

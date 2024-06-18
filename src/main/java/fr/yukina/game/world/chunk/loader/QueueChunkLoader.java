@@ -67,7 +67,7 @@ public class QueueChunkLoader implements IChunkLoader
 
 			if (distanceSquared > maxDistanceSquared)
 			{
-				chunk.visible(false);
+				this.chunkManager.updateVisibility(chunk, false);
 				chunk.needUnload(true);
 				chunk.cleanup();
 				this.chunkManager.chunks().remove(chunk.key());
@@ -79,7 +79,7 @@ public class QueueChunkLoader implements IChunkLoader
 			}
 			else
 			{
-				chunk.visible(!this.chunkManager.isOutFrustum(chunk));
+				this.chunkManager.updateVisibility(chunk);
 			}
 		}
 	}
@@ -120,7 +120,7 @@ public class QueueChunkLoader implements IChunkLoader
 					this.chunkLoadingQueue.add(new ChunkManager.ChunkLoading(x, z, () ->
 					{
 						LOGGER.info(String.format("Loading chunk at %s", key));
-						return this.chunkManager.loadChunk(key, finalX, finalZ);
+						return this.chunkManager.loadChunk(key, finalX, finalZ, distanceSquared);
 					}, key));
 				}
 			}

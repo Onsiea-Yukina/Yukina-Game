@@ -24,6 +24,15 @@ public class Circle implements IPattern
 		this.depth         = depthIn;
 	}
 
+	public final void updateRadius(final float distanceXIn, final float distanceZIn)
+	{
+		this.radius        = (float) Math.sqrt(distanceXIn * distanceXIn + distanceZIn * distanceZIn);
+		this.radiusSquared = distanceXIn * this.width * distanceXIn * this.width
+		                     + distanceZIn * this.depth * distanceZIn * this.depth;
+		this.width         = this.width;
+		this.depth         = this.depth;
+	}
+
 	@Override
 	public void set(final PatternManager patternManagerIn)
 	{
