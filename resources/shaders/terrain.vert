@@ -1,19 +1,26 @@
 #version 450 core
 
 layout (location = 0) in vec3 position;
+layout (location = 1) in vec3 normal;
 
-layout (location = 0) out vec3 passPosition;
-layout (location = 1) out float passTier;
+uniform mat4 model;
+uniform mat4 projection;
+uniform mat4 view;
 
-layout (set = 0, binding = 0) uniform UniformBlock {
-	mat4 projectionView;
-};
+out vec4 passColor;
+out vec2 passGrid;
+out vec3 passNormal;
+out vec3 passToCamera;
 
 void main()
 {
-	gl_Position = projectionView * vec4(position, 1.0);
-	passPosition = position;
+	// Transform the normal to view space
+	passNormal = normalize(transpose(inverse(mat3(model))) * normal).xyz;
+	passToCamera = (inverse(view) * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
 
-	// Calculate tier based on some criteria, for example using the y position
-	passTier = floor(position.y / 10.0); // Each tier is 10 units in height
+	// Transform the position to clip space
+	gl_Position = projection * view * model * vec4(position, 1.0);
+
+	passColor = vec4(1.0, 1.0, 1.0, 1.0); //vec4(position / 256.0, 1.0);
+	passGrid = position.xz;
 }

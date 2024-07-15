@@ -1,5 +1,6 @@
 package fr.yukina.game.graphic.window;
 
+import fr.yukina.game.graphic.window.handler.InputHandler;
 import lombok.Getter;
 import org.lwjgl.glfw.GLFWVidMode;
 import org.lwjgl.system.MemoryStack;
@@ -15,15 +16,16 @@ import static org.lwjgl.system.MemoryUtil.NULL;
 @Getter
 public class GLFWWindow
 {
-	private long       handle;
-	private int        width;
-	private int        height;
-	private String     title;
-	private int        framerate;
-	private int        synchronisation;
-	private boolean    antiAliasing;
-	private long       monitor;
-	private GLFWWindow sharedWindow;
+	private long         handle;
+	private int          width;
+	private int          height;
+	private String       title;
+	private int          framerate;
+	private int          synchronisation;
+	private boolean      antiAliasing;
+	private long         monitor;
+	private GLFWWindow   sharedWindow;
+	private InputHandler inputHandler;
 
 	GLFWWindow(int widthIn, int heightIn, String titleIn, int framerateIn, int synchronisationIn,
 	           boolean antiAliasingIn, long monitorIn)
@@ -77,6 +79,7 @@ public class GLFWWindow
 			this.monitor = glfwGetPrimaryMonitor();
 		}
 
+		this.inputHandler = new InputHandler(this.handle);
 		placeWindow(this.monitor);
 	}
 

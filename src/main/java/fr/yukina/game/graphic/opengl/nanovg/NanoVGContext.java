@@ -19,6 +19,7 @@ public class NanoVGContext
 			throw new RuntimeException("Could not init nanovg");
 		}
 		this.utils = new NanoVGUtils(this);
+
 	}
 
 	public void destroy()

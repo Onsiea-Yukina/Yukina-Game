@@ -19,9 +19,9 @@ public class Monitoring
 	private final StatisticFormatter framerateStatisticFormatter;
 	private final Player             player;
 
-	private NanoVGContext nanoVGContext;
-	private int           frame = 0;
-	private long          lastFrameTime;
+	private @Getter NanoVGContext nanoVGContext;
+	private         int           frame = 0;
+	private         long          lastFrameTime;
 
 	public Monitoring(GLFWContext glfwContextIn, boolean antialiasingIn, long monitorIn, Player playerIn)
 	{

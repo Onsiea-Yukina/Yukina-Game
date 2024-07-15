@@ -2,19 +2,22 @@ package fr.yukina.game.graphic.opengl.nanovg;
 
 import lombok.Getter;
 import org.lwjgl.nanovg.NVGColor;
+import org.lwjgl.nanovg.NVGPaint;
 
 import static org.lwjgl.nanovg.NanoVG.*;
 
 public class NanoVGUtils
 {
 	private final         NanoVGContext context;
-	private final         NVGColor      color;
+	private final @Getter NVGColor      color;
+	private final @Getter NVGPaint      paint;
 	private final @Getter float[]       bounds;
 
 	NanoVGUtils(NanoVGContext contextIn)
 	{
 		this.context = contextIn;
 		this.color   = NVGColor.create();
+		this.paint   = NVGPaint.create();
 		this.bounds  = new float[4];
 	}
 
