@@ -40,7 +40,7 @@ public class TerrainEditor
 			                                 this.terrain.increaseSynchronizationId();
 			                                 this.cache.precalculate();
 		                                 });
-		this.selectionBrush = new SeletionBrush("selection");
+		this.selectionBrush = new SelectionBrush("selection");
 		this.mousePicker    = new MousePicker(cameraIn, cameraIn.projectionMatrix(), windowIn, terrainIn,
 		                                      new RayMarchingStrategy());
 		this.last           = System.nanoTime();
