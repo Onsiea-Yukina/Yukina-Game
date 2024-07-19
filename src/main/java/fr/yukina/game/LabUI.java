@@ -1,5 +1,6 @@
 package fr.yukina.game;
 
+import fr.yukina.game.utils.IIFunction;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.Setter;
@@ -50,27 +51,28 @@ public class LabUI
 		GLFW.glfwSwapInterval(1);
 		GL.createCapabilities();
 		nanovg = NanoVGGL3.nvgCreate(NanoVGGL3.NVG_ANTIALIAS | NanoVGGL3.NVG_STENCIL_STROKES | NanoVGGL3.NVG_DEBUG);
+		NanoVG.nvgCreateFont(nanovg, "arial", "resources/fonts/arial/arial.ttf");
 
+		InputManager inputManager = new InputManager(window);
 		var group = new Group();
 		var sliderA = group.add("sliderA",
-		                        new Slider.Builder().x(50.0f).y(50.0f).width(900).height(80).cursorHeight(90).build());
+		                        new Slider.Builder().x(50.0f).y(50.0f).width(700).height(80).cursorHeight(90).build(inputManager));
 		var sliderB = group.add("sliderB",
-		                        new Slider.Builder().x(50.0f).y(50.0f + 150.0f).width(900).height(80).cursorHeight(90)
-		                                            .build());
+		                        new Slider.Builder().x(50.0f).y(50.0f + 150.0f).width(700).height(80).cursorHeight(90)
+		                                            .build(inputManager));
 		var sliderC = group.add("sliderC",
-		                        new Slider.Builder().x(50.0f).y(50.0f + 300.0f).width(900).height(80).cursorHeight(90)
-		                                            .build());
+		                        new Slider.Builder().x(50.0f).y(50.0f + 300.0f).width(700).height(80).cursorHeight(90)
+		                                            .build(inputManager));
 		sliderA.next(sliderB);
 		sliderB.next(sliderC);
 		sliderC.next(sliderA);
 
-		InputManager inputManager = new InputManager(window);
 		GLFW.glfwShowWindow(window);
 
 		while (!GLFW.glfwWindowShouldClose(window))
 		{
 			GL11.glClear(GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT | GL11.GL_STENCIL_BUFFER_BIT);
-			NanoVG.nvgBeginFrame(nanovg, WIDTH, HEIGHT, 1.0f);
+			NanoVG.nvgBeginFrame(nanovg, WIDTH, HEIGHT,1.0f);
 			group.draw(nanovg);
 			NanoVG.nvgEndFrame(nanovg);
 			GLFW.glfwSwapBuffers(window);
@@ -80,6 +82,24 @@ public class LabUI
 			inputManager.update();
 			group.update(inputManager);
 		}
+	}
+
+	public final static void drawText(long handleIn, String textIn, String fontNameIn, int fontSizeIn, float xIn, float yIn, Color textColorIn)
+	{
+		drawText(handleIn, textIn, fontNameIn, fontSizeIn, xIn, yIn, textColorIn.r(), textColorIn.g(), textColorIn.b(), textColorIn.a());
+	}
+
+	public final static void drawText(long handleIn, String textIn, String fontNameIn, int fontSizeIn, float xIn, float yIn, float rIn, float gIn, float bIn, float aIn)
+	{
+		NanoVG.nvgTextAlign(handleIn, NanoVG.NVG_ALIGN_MIDDLE | NanoVG.NVG_ALIGN_TOP);
+		NanoVG.nvgFontFace(handleIn, fontNameIn);
+		NanoVG.nvgFontSize(handleIn, fontSizeIn);
+		COLOR.r(rIn);
+		COLOR.g(gIn);
+		COLOR.b(bIn);
+		COLOR.a(aIn);
+		NanoVG.nvgFillColor(handleIn, COLOR);
+		NanoVG.nvgText(handleIn, xIn, yIn, textIn);
 	}
 
 	public final static void fillRectangle(long handleIn, float xIn, float yIn, float wIn, float hIn, Color colorIn)
@@ -184,6 +204,7 @@ public class LabUI
 		private         double            scrollY;
 		private final   Stack<IHoverable> hovered;
 		private final   List<Toggle>      toggleList;
+		private Stack<ICharFunction> charFunctions;
 		private @Setter ISelectable       selected;
 
 		public InputManager(long windowIn)
@@ -191,11 +212,19 @@ public class LabUI
 			this.window     = windowIn;
 			this.hovered    = new Stack<>();
 			this.toggleList = new ArrayList<>();
+			this.charFunctions = new Stack<>();
 
 			GLFW.glfwSetScrollCallback(this.window, (handleIn, x, y) ->
 			{
 				this.scrollX = x;
 				this.scrollY = y;
+			});
+
+			GLFW.glfwSetCharCallback(this.window, (handleIn, codepointIn) -> {
+				for(var charFunction : this.charFunctions)
+				{
+					charFunction.onChar(codepointIn);
+				}
 			});
 		}
 
@@ -221,6 +250,11 @@ public class LabUI
 		public boolean pressed(int keyIn)
 		{
 			return GLFW.glfwGetKey(window, keyIn) == GLFW.GLFW_PRESS;
+		}
+
+		public boolean repeated(int keyIn)
+		{
+			return GLFW.glfwGetKey(window, keyIn) == GLFW.GLFW_REPEAT;
 		}
 
 		public boolean released(int keyIn)
@@ -255,6 +289,16 @@ public class LabUI
 			this.scrollX = 0.0D;
 			this.scrollY = 0.0D;
 			this.hovered.clear();
+		}
+
+		public void subscribeCharFunction(ICharFunction charFunctionIn)
+		{
+			this.charFunctions.add(charFunctionIn);
+		}
+
+		public interface ICharFunction
+		{
+			void onChar(int codepointIn);
 		}
 	}
 
@@ -401,285 +445,556 @@ public class LabUI
 	}
 
 	@Getter
-	public final static class TextRecorder extends UIElement implements IDrawable, ISelectable
+	public final static class NumberBox extends UIElement implements IDrawable, IUpdatable, IHoverable, ISelectable, InputManager.ICharFunction
 	{
+		private final Color backgroundColor;
+		private final Color textColor;
+		private String number;
+		private boolean selected;
+		private int cursorPosition;
+		private boolean blink;
+		private long blinkDelay;
+		private long lastBlink;
+		private long last;
+		private @Setter IFunction clickCallback;
 
-	}
-
-	@Getter
-	public final static class Slider extends UIElement implements IDrawable, IUpdatable, ISelectable
-	{
-		private final   Color        color;
-		private final   Color        selectedColor;
-		private final   Color        selectedStrokeColor;
-		private final   SliderCursor cursor;
-		private         boolean      wantSelected;
-		private         boolean      selected;
-		private @Setter ISelectable  next;
-
-		public Slider(float xIn, float yIn, float widthIn, float heightIn, float cursorWidthIn, float cursorHeightIn,
-		              Color colorIn, Color selectedColorIn, Color selectedStrokeColorIn, Color cursorColorIn,
-		              Color cursorHoveredColorIn)
-		{
+		public NumberBox(InputManager inputManager, float xIn, float yIn, float widthIn, float heightIn) {
 			super(xIn, yIn, widthIn, heightIn);
-			this.color               = colorIn;
-			this.selectedColor       = selectedColorIn;
-			this.selectedStrokeColor = selectedStrokeColorIn;
-			this.cursor              = new SliderCursor(this, cursorWidthIn, cursorHeightIn, cursorColorIn,
-			                                            cursorHoveredColorIn);
+			this.backgroundColor = new Color(0.125f, 0.125f, 0.125f, 1.0f);
+			this.textColor = new Color(1.0f, 1.0f, 1.0f, 1.0f);
+			this.cursorPosition = 0;
+			this.blink = true;
+			this.blinkDelay = 100_000_000L;
+			this.lastBlink = System.nanoTime();
+			this.last = System.nanoTime();
+			inputManager.subscribeCharFunction(this);
 		}
 
-		@Override
-		public void select()
+		public void insert(int positionIn, int codepointIn)
 		{
-			this.wantSelected = true;
+			this.insert(positionIn, Character.toString(codepointIn));
 		}
 
-		@Override
-		public void unselect()
+		public void insert(int positionIn, char characterIn)
 		{
-			this.wantSelected = false;
+			this.insert(positionIn, "" + characterIn);
 		}
 
-		@Override
-		public boolean update(InputManager inputManagerIn)
+		public void insert(int positionIn, String contentIn)
 		{
-			this.selected = false;
-			if ((this.wantSelected && inputManagerIn.hovered.size() == 0) || this.hovered)
+			var before = this.number.substring(0, Math.clamp(positionIn, 0, this.number.length()));
+			var after = "";
+			if(positionIn < this.number.length())
 			{
-				this.selected = true;
+				after += this.number.substring(this.cursorPosition);
+			}
+			this.number = before + contentIn + after;
+			this.cursorPosition += contentIn.length();
+		}
+
+		public void deleteBefore(int positionIn)
+		{
+			keepOnly(positionIn - 1, positionIn);
+		}
+
+		public void deleteAfter(int positionIn)
+		{
+			keepOnly(positionIn, positionIn + 1);
+		}
+
+		public void keepOnly(int startIn, int endIn)
+		{
+			var before = this.number.substring(0, Math.clamp(startIn, 0, this.number.length()));
+			var after = "";
+			if(endIn < this.number.length())
+			{
+				after += this.number.substring(endIn);
+			}
+			this.number = before + after;
+		}
+
+		@Override
+		public void onChar(int codepointIn) {
+			if(!this.selected) {
+				return;
 			}
 
-			if (this.cursor.update(inputManagerIn))
+			if (Character.isDigit(codepointIn)) {
+				this.insert(this.cursorPosition, codepointIn);
+			}
+		}
+
+		@Override
+		public boolean update(InputManager inputManagerIn) {
+			if(!this.selected)
 			{
 				return false;
 			}
 
-			if (this.hovered)
+			if(this.hovered && this.clickCallback != null && inputManagerIn.mousePressed(GLFW.GLFW_MOUSE_BUTTON_LEFT))
 			{
-				if (inputManagerIn.mousePressed(GLFW.GLFW_MOUSE_BUTTON_LEFT))
-				{
-					this.cursor.x(inputManagerIn.mouseX());
-					return true;
-				}
+				this.clickCallback.execute();
 			}
 
-			if (this.hovered || this.selected)
+			if(System.nanoTime() - this.lastBlink >= this.blinkDelay)
 			{
-				if (inputManagerIn.pressed(GLFW.GLFW_KEY_KP_ADD) || inputManagerIn.pressed(GLFW.GLFW_KEY_RIGHT))
-				{
-					this.cursor.x(this.cursor.x() + this.cursor.width() / 2 + 4.0f);
-				}
-				else if (inputManagerIn.pressed(GLFW.GLFW_KEY_KP_SUBTRACT) || inputManagerIn.pressed(
-						GLFW.GLFW_KEY_LEFT))
-				{
-					this.cursor.x(this.cursor.x() + this.cursor.width() / 2 - 4.0f);
-				}
-				else
-				{
-					this.cursor.x(this.cursor.x() + this.cursor.width() / 2 + inputManagerIn.scrollY() * 20.0f);
-				}
-				return true;
+				this.blink = !this.blink;
+				this.lastBlink = System.nanoTime();
+			}
+
+			if(System.nanoTime() - this.last <= 130_000_000L) {
+				return false;
+			}
+			this.last = System.nanoTime();
+
+			if(inputManagerIn.pressed(GLFW.GLFW_KEY_LEFT) && this.cursorPosition - 1 >= 0)
+			{
+				this.cursorPosition --;
+			}
+			else if((inputManagerIn.pressed(GLFW.GLFW_KEY_RIGHT) || inputManagerIn.repeated(GLFW.GLFW_KEY_RIGHT)) && this.cursorPosition + 1 <= this.number.length())
+			{
+				this.cursorPosition ++;
+			}
+			else if((inputManagerIn.pressed(GLFW.GLFW_KEY_BACKSPACE) || inputManagerIn.repeated(GLFW.GLFW_KEY_BACKSPACE)) && this.cursorPosition-1 >= 0)
+			{
+				this.deleteBefore(this.cursorPosition);
+				this.cursorPosition --;
+			}
+			else if(inputManagerIn.pressed(GLFW.GLFW_KEY_DELETE) || inputManagerIn.repeated(GLFW.GLFW_KEY_DELETE))
+			{
+				this.deleteAfter(this.cursorPosition);
 			}
 
 			return false;
 		}
 
-		public void draw(long handleIn)
-		{
-			if (this.selected)
+		@Override
+		public void draw(long handleIn) {
+			if(this.backgroundColor.a() > 0.0f)
 			{
-				fillRectangle(handleIn, this.x, this.y, this.width, this.height, this.selectedColor);
-				if (this.selectedStrokeColor.a > 0.0f && (this.selectedStrokeColor.r > 0.0f
-				                                          || this.selectedStrokeColor.g > 0.0f
-				                                          || this.selectedStrokeColor.b > 0.0f))
-				{
-					NanoVG.nvgStrokeColor(handleIn, selectedStrokeColor.transpose(COLOR));
-					NanoVG.nvgStrokeWidth(handleIn, 8.0f);
-					NanoVG.nvgStroke(handleIn);
-				}
+				fillRectangle(handleIn, this.x, this.y, this.width, this.height, this.backgroundColor);
 			}
-			else
+
+			var textBounds = new float[4];
+
+			NanoVG.nvgTextAlign(handleIn, NanoVG.NVG_ALIGN_MIDDLE | NanoVG.NVG_ALIGN_TOP);
+			NanoVG.nvgFontFace(handleIn, "arial");
+			NanoVG.nvgFontSize(handleIn, 24);
+			NanoVG.nvgTextBounds(handleIn, 0.0f, 0.0f, this.number, textBounds);
+			var textX = this.x + (this.width - (textBounds[2] - textBounds[0])) / 2.0f;
+			var textY = this.y + (this.height - (textBounds[3] - textBounds[1])) / 2.0f;
+			drawText(handleIn, this.number, "arial", 24,
+					textX,
+					this.y + (this.height - (textBounds[3] - textBounds[1])) / 2.0f, this.textColor);
+
+			if(this.blink && this.cursorPosition >= 0 && this.cursorPosition <= this.number.length())
 			{
-				fillRectangle(handleIn, this.x, this.y, this.width, this.height, this.color);
+				var textBeforeCursor = this.number.substring(0, this.cursorPosition);
+				NanoVG.nvgTextBounds(handleIn, 0.0f, 0.0f, textBeforeCursor, textBounds);
+				var widthBeforeCursor = textBounds[2] - textBounds[0];
+				NanoVG.nvgTextBounds(handleIn, 0.0f, 0.0f, "|", textBounds);
+				var xOffset = widthBeforeCursor - (textBounds[2] - textBounds[0]);
+
+				drawText(handleIn, "|", "arial", 24,
+						textX + xOffset,
+						textY - (textBounds[3] - textBounds[1])/4.0f, this.textColor);
 			}
-			this.cursor.draw(handleIn);
 		}
 
-		public final static class Builder
-		{
-			private @Setter       float x;
-			private @Setter       float y;
-			private @Setter       float width;
-			private @Setter       float height;
-			private @Setter       float cursorWidth;
-			private @Setter       float cursorHeight;
-			private final @Getter Color color;
-			private final @Getter Color selectedColor;
-			private final @Getter Color selectedStrokeColor;
-			private final @Getter Color cursorColor;
-			private final @Getter Color cursorHoveredColor;
+		@Override
+		public void select() {
+			this.selected = true;
+		}
 
-			public Builder()
-			{
-				this.width               = 100.0f;
-				this.height              = 40.0f;
-				this.x                   = 0.0f;
-				this.y                   = 0.0f;
-				this.cursorHeight        = this.height + 8.0f;
-				this.cursorWidth         = this.cursorHeight;
-				this.color               = new Color(0.5f, 0.5f, 0.5f, 1.0f);
-				this.selectedColor       = new Color(0.75f, 0.75f, 0.75f, 1.0f);
-				this.selectedStrokeColor = new Color(1.0f, 1.0f, 1.0f, 1.0f);
-				this.cursorColor         = new Color(1.0f, 0.0f, 0.0f, 1.0f);
-				this.cursorHoveredColor  = new Color(1.0f, 1.0f, 0.0f, 1.0f);
-			}
+		@Override
+		public void unselect() {
+			this.selected = false;
+		}
 
-			public Slider build()
-			{
-				return new Slider(this.x, this.y, this.width, this.height, this.cursorWidth, this.cursorHeight,
-				                  this.color, this.selectedColor, this.selectedStrokeColor, this.cursorColor,
-				                  this.cursorHoveredColor);
-			}
+		@Override
+		public ISelectable next() {
+			return null;
 		}
 	}
 
 	@Getter
-	public final static class SliderCursor extends UIElement implements IDrawable, IUpdatable, IHoverable
+	public final static class NumberRecorder extends UIElement implements IDrawable, IUpdatable, ISelectable, InputManager.ICharFunction
 	{
-		private final         Slider  slider;
-		private @Setter       float   percent;
-		private @Setter       float   width;
-		private @Setter       float   height;
-		private @Getter final Color   color;
-		private @Getter final Color   hoveredColor;
-		private               double  useX; // Coordinate when click on cursor
-		private               double  useY; // Coordinate when click on cursor
-		private               double  offsetX; // Offset between cursor center and click position
-		private               double  offsetY; // Offset between cursor center and click position
-		private @Setter       int     numValues; // Number of possible values
-		private @Setter       float   precision; // Precision factor (step size)
-		private               boolean hovered;
-		private               boolean used;
+		private long last;
+		private String number;
+		private boolean selected;
+		private boolean finished;
+		private boolean entering;
+		private @Setter IIFunction<String> callback;
+		private @Setter IFunction clickCallback;
 
-		private SliderCursor(Slider sliderIn, float widthIn, float heightIn, Color colorIn, Color hoveredColorIn)
-		{
-			this.slider       = sliderIn;
-			this.width        = widthIn;
-			this.height       = heightIn;
-			this.color        = colorIn;
-			this.hoveredColor = hoveredColorIn;
-			this.numValues    = 100;
-			this.calculatePrecision();
+		public NumberRecorder(InputManager inputManagerIn) {
+			super(0, 0, 100, 100);
+			inputManagerIn.subscribeCharFunction(this);
+			this.select();
+			this.last = System.nanoTime();
+			this.number = "";
 		}
 
-		public void x(double xIn)
-		{
-			this.percent = (float) ((Math.clamp(xIn, this.slider.x, this.slider.x + this.slider.width) - this.slider.x)
-			                        / this.slider.width);
-			this.percent = Math.clamp(this.percent, 0.0f, 1.0f);
-			this.snapToPrecision();
-		}
+		@Override
+		public void onChar(int codepointIn) {
+			if(!this.selected) {
+				return;
+			}
+			this.finished = false;
+			this.entering = true;
 
-		public void use(double xIn, double yIn)
-		{
-			this.useX    = xIn;
-			this.useY    = yIn;
-			this.offsetX = xIn - this.x(); // Calculate offset on use
-			this.offsetY = yIn - this.y(); // Calculate offset on use
-			this.used    = true;
-		}
-
-		public boolean update(InputManager inputManagerIn)
-		{
-			if (!this.used && this.hovered(inputManagerIn.mouseX(), inputManagerIn.mouseY())
-			    && inputManagerIn.mousePressed(GLFW.GLFW_MOUSE_BUTTON_LEFT))
-			{
-				this.use(inputManagerIn.mouseX(), inputManagerIn.mouseY());
-				return true;
+			if (System.nanoTime() - last > 1_000_000_000L) {
+				this.number = "";
 			}
 
-			if (inputManagerIn.mouseReleased(GLFW.GLFW_MOUSE_BUTTON_LEFT) || !this.used)
-			{
-				this.unuse();
-				return false;
+			if (Character.isDigit(codepointIn)) {
+				this.number += Character.toString(codepointIn);
 			}
 
-			this.percent = (float) (
-					(Math.clamp(inputManagerIn.mouseX() - this.offsetX + this.width / 2.0f, this.slider.x,
-					            this.slider.x + this.slider.width) - this.slider.x) / this.slider.width);
-			this.percent = Math.clamp(this.percent, 0.0f, 1.0f);
-			this.snapToPrecision();
-
-			return true;
+			this.last = System.nanoTime();
 		}
 
-		public void unuse()
-		{
-			this.used = false;
-		}
-
-		public boolean hovered(double xIn, double yIn)
-		{
-			this.hovered =
-					xIn >= this.x() && xIn <= this.x() + this.width && yIn >= this.y() && yIn <= this.y() + this.height;
-
-			return this.hovered;
-		}
-
-		public void draw(long handleIn)
-		{
-			if (this.hovered)
+		@Override
+		public boolean update(InputManager inputManagerIn) {
+			if(this.hovered && this.clickCallback != null && inputManagerIn.mousePressed(GLFW.GLFW_MOUSE_BUTTON_LEFT))
 			{
-				fillRectangle(handleIn, this.x(), this.y(), this.width, this.height(), this.hoveredColor);
-			}
-			else
-			{
-				fillRectangle(handleIn, this.x(), this.y(), this.width, this.height(), this.color);
-			}
-		}
-
-		public float height()
-		{
-			if (this.slider.selected)
-			{
-				return this.height + 4.0f;
+				this.clickCallback.execute();
 			}
 
-			return this.height;
-		}
-
-		public float x()
-		{
-			return this.slider.x + this.percent * this.slider.width - this.width / 2.0f;
-		}
-
-		public float y()
-		{
-			return this.slider.y + (this.slider.height - this.height()) / 2.0f;
-		}
-
-		private void snapToPrecision()
-		{
-			if (this.precision > 0)
-			{
-				this.percent = Math.round(this.percent / this.precision) * this.precision;
-				this.percent = Math.clamp(this.percent, 0.0f, 1.0f);
+			this.finished = System.nanoTime() - this.last >= 1_000_000_000L;
+			if(this.finished && this.entering) {
+				this.callback.execute(this.number);
+				this.entering = false;
 			}
+			return false;
 		}
 
-		private void calculatePrecision()
-		{
-			if (this.numValues > 1)
-			{
-				this.precision = 1.0f / (this.numValues - 1);
-			}
-			else
-			{
-				this.precision = 1.0f;
-			}
+		@Override
+		public void draw(long handleIn) {
+			drawText(handleIn, this.number, "arial", 24, this.x + 50, this.y + 50, 1.0f, 1.0f, 1.0f, 1.0f);
+		}
+
+		@Override
+		public void select() {
+			this.selected = true;
+		}
+
+		@Override
+		public void unselect() {
+			this.selected = false;
+		}
+
+		@Override
+		public ISelectable next() {
+			return null;
 		}
 	}
+
+	@Getter
+	public final static class Slider extends UIElement implements IDrawable, IUpdatable, ISelectable {
+        private final Color color;
+        private final Color selectedColor;
+        private final Color selectedStrokeColor;
+        private final SliderCursor cursor;
+        private boolean wantSelected;
+        private boolean selected;
+        private @Setter ISelectable next;
+        private long lastInput;
+		private final NumberRecorder numberRecorder;
+		private final NumberBox numberBox;
+		private boolean numberBoxed;
+
+        public Slider(InputManager inputManagerIn, float xIn, float yIn, float widthIn, float heightIn, float cursorWidthIn, float cursorHeightIn,
+                      Color colorIn, Color selectedColorIn, Color selectedStrokeColorIn, Color cursorColorIn,
+                      Color cursorHoveredColorIn) {
+            super(xIn, yIn, widthIn, heightIn);
+			this.numberRecorder = new NumberRecorder(inputManagerIn);
+			this.numberRecorder.x(xIn+widthIn + 8.0f);
+			this.numberRecorder.y(yIn);
+			this.numberBox = new NumberBox(inputManagerIn, this.numberRecorder.x, this.numberRecorder.y, 20.0f, 20.0f);
+            this.color = colorIn;
+            this.selectedColor = selectedColorIn;
+            this.selectedStrokeColor = selectedStrokeColorIn;
+            this.cursor = new SliderCursor(this, cursorWidthIn, cursorHeightIn, cursorColorIn,
+                    cursorHoveredColorIn);
+            this.lastInput = System.nanoTime();
+			this.cursor.callback((percentIn) -> {
+				this.numberRecorder.number = "" + percentIn * 100;
+			});
+			this.numberRecorder.callback((numberIn) -> {
+				this.cursor.percent = ((float) Integer.parseInt(numberIn)) / 100.0f;
+				this.cursor.snapToPrecision();
+			});
+			this.numberRecorder.clickCallback(() -> {
+				this.numberBox.number = this.numberRecorder.number;
+				this.numberBoxed = true;
+			});
+			this.numberBox.clickCallback(() -> {
+				this.numberRecorder.number = this.numberBox.number;
+				this.numberBoxed = false;
+			});
+
+		}
+
+        @Override
+        public void select() {
+            this.wantSelected = true;
+        }
+
+        @Override
+        public void unselect() {
+            this.wantSelected = false;
+        }
+
+        @Override
+        public boolean update(InputManager inputManagerIn) {
+            this.selected = false;
+			this.numberRecorder.unselect();
+            if ((this.wantSelected && inputManagerIn.hovered.size() == 0) || this.hovered) {
+                this.selected = true;
+				this.numberRecorder.select();
+			}
+			this.numberRecorder.update(inputManagerIn);
+
+            if (this.cursor.update(inputManagerIn)) {
+                return false;
+            }
+
+            if (this.hovered) {
+                if (inputManagerIn.mousePressed(GLFW.GLFW_MOUSE_BUTTON_LEFT)) {
+                    this.cursor.x(inputManagerIn.mouseX());
+					return true;
+                }
+            }
+
+            if (this.hovered || this.selected) {
+                if (System.nanoTime() - this.lastInput > 8_000_000_0L)
+                {
+                    if (inputManagerIn.pressed(GLFW.GLFW_KEY_KP_ADD) || inputManagerIn.pressed(GLFW.GLFW_KEY_RIGHT)) {
+                        this.cursor.next();
+                    } else if (inputManagerIn.pressed(GLFW.GLFW_KEY_KP_SUBTRACT) || inputManagerIn.pressed(
+                            GLFW.GLFW_KEY_LEFT)) {
+                        this.cursor.previous();
+                    } else {
+                        this.cursor.x(this.cursor.x() + this.cursor.width() / 2 + inputManagerIn.scrollY() * 20.0f);
+                    }
+                    this.lastInput = System.nanoTime();
+                }
+				return true;
+        	}
+
+            return false;
+        }
+
+        public void draw(long handleIn) {
+            if (this.selected) {
+                fillRectangle(handleIn, this.x, this.y, this.width, this.height, this.selectedColor);
+                if (this.selectedStrokeColor.a > 0.0f && (this.selectedStrokeColor.r > 0.0f
+                        || this.selectedStrokeColor.g > 0.0f
+                        || this.selectedStrokeColor.b > 0.0f)) {
+                    NanoVG.nvgStrokeColor(handleIn, selectedStrokeColor.transpose(COLOR));
+                    NanoVG.nvgStrokeWidth(handleIn, 8.0f);
+                    NanoVG.nvgStroke(handleIn);
+                }
+            } else {
+                fillRectangle(handleIn, this.x, this.y, this.width, this.height, this.color);
+            }
+            this.cursor.draw(handleIn);
+			this.numberRecorder.draw(handleIn);
+        }
+
+        public final static class Builder {
+            private @Setter float x;
+            private @Setter float y;
+            private @Setter float width;
+            private @Setter float height;
+            private @Setter float cursorWidth;
+            private @Setter float cursorHeight;
+            private final @Getter Color color;
+            private final @Getter Color selectedColor;
+            private final @Getter Color selectedStrokeColor;
+            private final @Getter Color cursorColor;
+            private final @Getter Color cursorHoveredColor;
+
+            public Builder() {
+                this.width = 100.0f;
+                this.height = 40.0f;
+                this.x = 0.0f;
+                this.y = 0.0f;
+                this.cursorHeight = this.height + 8.0f;
+                this.cursorWidth = this.cursorHeight;
+                this.color = new Color(0.5f, 0.5f, 0.5f, 1.0f);
+                this.selectedColor = new Color(0.75f, 0.75f, 0.75f, 1.0f);
+                this.selectedStrokeColor = new Color(1.0f, 1.0f, 1.0f, 1.0f);
+                this.cursorColor = new Color(1.0f, 0.0f, 0.0f, 1.0f);
+                this.cursorHoveredColor = new Color(1.0f, 1.0f, 0.0f, 1.0f);
+            }
+
+            public Slider build(InputManager inputManagerIn) {
+                return new Slider(inputManagerIn, this.x, this.y, this.width, this.height, this.cursorWidth, this.cursorHeight,
+                        this.color, this.selectedColor, this.selectedStrokeColor, this.cursorColor,
+                        this.cursorHoveredColor);
+            }
+        }
+
+        @Getter
+        public final static class SliderCursor implements IDrawable, IUpdatable, IHoverable {
+            private final Slider slider;
+			private float lastPercent;
+            private @Setter float percent;
+            private @Setter float width;
+            private @Setter float height;
+            private @Getter
+            final Color color;
+            private @Getter
+            final Color hoveredColor;
+            private double useX; // Coordinate when click on cursor
+            private double useY; // Coordinate when click on cursor
+            private double offsetX; // Offset between cursor center and click position
+            private double offsetY; // Offset between cursor center and click position
+            private @Setter int numValues; // Number of possible values
+            private @Setter float precision; // Precision factor (step size)
+            private boolean hovered;
+            private boolean used;
+			private @Setter IIFunction<Float> callback;
+
+            private SliderCursor(Slider sliderIn, float widthIn, float heightIn, Color colorIn, Color hoveredColorIn) {
+                this.slider = sliderIn;
+                this.width = widthIn;
+                this.height = heightIn;
+                this.color = colorIn;
+                this.hoveredColor = hoveredColorIn;
+                this.numValues = 10;
+                this.calculatePrecision();
+            }
+
+            public void previous() {
+                if (this.precision > 0.0f) {
+                    this.percent -= this.precision;
+                    this.percent = Math.clamp(this.percent, 0.0f, 1.0f);
+                    this.snapToPrecision();
+					this.changed();
+                    return;
+                }
+
+                this.percent -= 8.0f / this.slider.width;
+                this.percent = Math.clamp(this.percent, 0.0f, 1.0f);
+                this.snapToPrecision();
+				this.changed();
+			}
+
+            public void next() {
+                if (this.precision > 0.0f) {
+                    this.percent += this.precision;
+                    this.percent = Math.clamp(this.percent, 0.0f, 1.0f);
+                    this.snapToPrecision();
+					this.changed();
+                    return;
+                }
+
+                this.percent += 8.0f / this.slider.width;
+                this.percent = Math.clamp(this.percent, 0.0f, 1.0f);
+                this.snapToPrecision();
+            	this.changed();
+			}
+
+            public void x(double xIn) {
+                this.percent = (float) ((Math.clamp(xIn, this.slider.x, this.slider.x + this.slider.width) - this.slider.x)
+                        / this.slider.width);
+                this.percent = Math.clamp(this.percent, 0.0f, 1.0f);
+				this.snapToPrecision();
+				this.changed();
+            }
+
+            public void use(double xIn, double yIn) {
+                this.useX = xIn;
+                this.useY = yIn;
+                this.offsetX = xIn - this.x(); // Calculate offset on use
+                this.offsetY = yIn - this.y(); // Calculate offset on use
+                this.used = true;
+            }
+
+			public void changed()
+			{
+				if(this.percent != this.lastPercent && this.callback != null) {
+					this.callback.execute(this.percent);
+				}
+				this.lastPercent = percent;
+			}
+
+            public boolean update(InputManager inputManagerIn) {
+                if (!this.used && this.hovered(inputManagerIn.mouseX(), inputManagerIn.mouseY())
+                        && inputManagerIn.mousePressed(GLFW.GLFW_MOUSE_BUTTON_LEFT)) {
+                    this.use(inputManagerIn.mouseX(), inputManagerIn.mouseY());
+                    return true;
+                }
+
+                if (inputManagerIn.mouseReleased(GLFW.GLFW_MOUSE_BUTTON_LEFT) || !this.used) {
+                    this.unuse();
+                    return false;
+                }
+
+                this.percent = (float) (
+                        (Math.clamp(inputManagerIn.mouseX() - this.offsetX + this.width / 2.0f, this.slider.x,
+                                this.slider.x + this.slider.width) - this.slider.x) / this.slider.width);
+                this.percent = Math.clamp(this.percent, 0.0f, 1.0f);
+                this.snapToPrecision();
+
+                return true;
+            }
+
+            public void unuse() {
+                this.used = false;
+            }
+
+            public boolean hovered(double xIn, double yIn) {
+                this.hovered =
+                        xIn >= this.x() && xIn <= this.x() + this.width && yIn >= this.y() && yIn <= this.y() + this.height;
+
+                return this.hovered;
+            }
+
+            public void draw(long handleIn) {
+                if (this.hovered) {
+                    fillRectangle(handleIn, this.x(), this.y(), this.width, this.height(), this.hoveredColor);
+                } else {
+                    fillRectangle(handleIn, this.x(), this.y(), this.width, this.height(), this.color);
+                }
+            }
+
+            public float height() {
+                if (this.slider.selected) {
+                    return this.height + 4.0f;
+                }
+
+                return this.height;
+            }
+
+            public float x() {
+                return this.slider.x + this.percent * this.slider.width - this.width / 2.0f;
+            }
+
+            public float y() {
+                return this.slider.y + (this.slider.height - this.height()) / 2.0f;
+            }
+
+            private void snapToPrecision() {
+                if (this.precision > 0) {
+                    this.percent = Math.round(this.percent / this.precision) * this.precision;
+                    this.percent = Math.clamp(this.percent, 0.0f, 1.0f);
+                }
+            }
+
+            private void calculatePrecision() {
+                if (this.numValues > 1) {
+                    this.precision = 1.0f / (this.numValues - 1);
+                } else {
+                    this.precision = 1.0f;
+                }
+            }
+        }
+    }
 
 	@Getter
 	@ToString
